@@ -41,9 +41,15 @@ void vTaskSensorProcessing(void *pvParameters) {
     static uint32_t result_termo2;
     static uint32_t result_voltage;
 
+
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 	ADC_MEASUREMENT_StartConversion(&ADC_MEASUREMENT_0);
 
     while (1) {
+        DWT->CYCCNT = 0;
+
+        uint32_t start_cycles = DWT->CYCCNT;
+
         result_termo1 = ADC_MEASUREMENT_GetResult(&ADC_MEASUREMENT_Termo_1_handle);
         result_termo2 = ADC_MEASUREMENT_GetResult(&ADC_MEASUREMENT_Termo_2_handle);
         result_voltage = ADC_MEASUREMENT_GetResult(&ADC_MEASUREMENT_Voltage_handle);
@@ -54,12 +60,16 @@ void vTaskSensorProcessing(void *pvParameters) {
         // Setăm poziția servomotorului
         set_servo_position(&PWM_0, angle);
 
+        uint32_t end_cycles = DWT->CYCCNT;
+        uint32_t duration_cycles = end_cycles - start_cycles;
+
+
         // Creăm un mesaj de transmis și îl punem în coadă
-        sprintf(buffer, "LDR1: %lu, LDR2: %lu, Tensiune: %lu\n", result_termo1, result_termo2, result_voltage);
+        sprintf(buffer, "LDR1: %lu, LDR2: %lu, Tensiune: %lu, Clocks: %lu \r\n", result_termo1, result_termo2, result_voltage, duration_cycles);
         xQueueSend(xQueue, (void *)buffer, portMAX_DELAY);
 
         // Sincronizăm cu Task-ul de transmitere
-        vTaskDelay(5000); // Delay pentru a evita încărcarea excesivă a procesorului
+        // vTaskDelay(5000); // Delay pentru a evita încărcarea excesivă a procesorului
 
 		ADC_MEASUREMENT_StartConversion(&ADC_MEASUREMENT_0);
 
@@ -81,6 +91,9 @@ void vTaskCommunication(void *pvParameters) {
         if (xQueueReceive(xQueue, (void *)buffer, portMAX_DELAY)) {
             UART_Transmit(&UART_0, (uint8_t *)buffer, strlen(buffer));
         }
+
+        vTaskDelay(5000); // Pentru o afisare mai frumoasa, se poate sterge
+
     }
 }
 
@@ -106,7 +119,7 @@ int main(void) {
     }
 
     // Crearea task-urilor
-    xTaskCreate(vTaskSensorProcessing, "SensorProcessing", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, NULL);
+    xTaskCreate(vTaskSensorProcessing, "SensorProcessing", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 2, NULL);
     xTaskCreate(vTaskCommunication, "Communication", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, NULL);
 
     // Pornește scheduler-ul RTOS
